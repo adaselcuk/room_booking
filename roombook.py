@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord.ui import Button, View
+from discord.ui import Button, View, Modal, TextInput
 import sqlite3
 from datetime import datetime
 import os
@@ -17,36 +17,86 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 db = sqlite3.connect('room_requests.db') # title of db
 cursor = db.cursor()
+
+cursor.execute('''
+DROP TABLE IF EXISTS requests;
+''')
+
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT,
     location TEXT,
     date TEXT,
-    time TEXT,
+    from_time TEXT,
+	to_time TEXT,
     status TEXT DEFAULT 'Pending'
 )
 ''')
 db.commit()
 
+class RoomRequestModal(Modal):
+	def __init__(self):
+		super().__init__(title="Room Request from Pookies!")
+
+		self.location = TextInput(label="Location", placeholder="Enter which library you prefer", min_length=3, max_length=50)
+		self.date = TextInput(label="Date", placeholder="Enter the date (MM-DD-YYYY)", min_length=10, max_length=10)
+		self.from_time = TextInput(label="From", placeholder="Enter the start time (HH:MM)", min_length=5, max_length=5)
+		self.to_time = TextInput(label="To", placeholder="Enter the end time (HH:MM)", min_length=5, max_length=5)
+
+		self.add_item(self.location)
+		self.add_item(self.date)
+		self.add_item(self.from_time)
+		self.add_item(self.to_time)
+	
+	async def on_submit(self, interaction: discord.Interaction):
+		try:
+			datetime.strptime(self.date.value, '%m-%d-%Y')
+			datetime.strptime(self.from_time.value, '%H:%M')
+			datetime.strptime(self.to_time.value, '%H:%M')
+
+			cursor.execute('''
+			INSERT INTO requests (user_id, location, date, from_time, to_time)
+			VALUES (?, ?, ?, ?, ?)
+			''', (interaction.user.id, self.location.value, self.date.value, self.from_time.value, self.to_time.value))
+
+			db.commit()
+			await interaction.response.send_message(f"Room request received for **{self.location.value}** on **{self.date.value}** at **{self.from_time.value}-{self.to_time.value}** by {interaction.user.mention}.",
+			ephemeral=True)
+
+			channel = interaction.channel
+			await channel.send(
+				embed=discord.Embed(
+					title="Fellow Homo In Need!",
+					description=
+						f"**Location: **{self.location.value}\n"
+						f"**Date: **{self.date.value}\n"
+						f"**Time: **{self.from_time.value}-{self.to_time.value}\n"
+						f"**Requested By: **{interaction.user.mention}",
+					color=discord.Color.green()
+				)
+			)
+
+		except ValueError as e:
+			print(f"error: {e}")
+			await interaction.response.send_message('Invalid date or time format. Please use MM-DD-YYYY and HH:MM format.', ephemeral=True)
+
+class RoomRequestButtonView(View):
+    def __init__(self):
+        super().__init__()
+        button = Button(label="Call ur gay friends to the rescue", style=discord.ButtonStyle.primary)
+        button.callback = self.button_callback
+        self.add_item(button)
+
+    async def button_callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(RoomRequestModal())
+
 # to request room, command is !request location date time:
 @bot.command()
-async def request(ctx, location: str, date: str, time: str):
-	try:
-		datetime.strptime(date, '%m-%d-%Y')
-		datetime.strptime(time, '%H:%M')
-
-		cursor.execute('''
-		INSERT INTO requests (user_id, location, date, time)
-		VALUES (?, ?, ?, ?)
-		''', (ctx.author.id, location, date, time))
-
-		db.commit()
-		await ctx.send(f"Room request received for **{location}** on **{date}** at **{time}** by {ctx.author.mention}.")
-	except ValueError:
-		await ctx.send('Invalid date or time format. Please use DD-MM-YYYY and HH:MM format.')
-	except Exception as e:
-		await ctx.send(f'An error occurred: {e}')
+async def request(ctx):
+	view = RoomRequestButtonView()
+	await ctx.send("You need a room!!!!! loser... fill out form below... freak....", view=view, delete_after=5)
+	
 
 
 # to view all requests, command is !view_requests:
