@@ -19,10 +19,6 @@ db = sqlite3.connect('room_requests.db') # title of db
 cursor = db.cursor()
 
 cursor.execute('''
-DROP TABLE IF EXISTS requests;
-''')
-
-cursor.execute('''
 CREATE TABLE IF NOT EXISTS requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT,
@@ -65,16 +61,32 @@ class RoomRequestModal(Modal):
 			ephemeral=True)
 
 			channel = interaction.channel
+
+			button = Button(label="Mark as Booked", style=discord.ButtonStyle.green)
+
+			async def button_callback(interaction: discord.Interaction):
+				cursor.execute('DELETE FROM requests WHERE id = (SELECT id FROM requests ORDER BY id DESC LIMIT 1)')
+				db.commit()
+				await channel.send(f"✅ **Room request completed!**\n"
+                f"- **Location:** {self.location.value}\n"
+                f"- **Date:** {self.date.value}\n"
+                f"- **Time:** {self.from_time.value}-{self.to_time.value}\n"
+                f"- **Completed by:** {interaction.user.mention}")
+			
+			button.callback = button_callback
+			view = View()
+			view.add_item(button)
+
 			await channel.send(
 				embed=discord.Embed(
-					title="Fellow Homo In Need!",
+					title="Fellow In Need!",
 					description=
 						f"**Location: **{self.location.value}\n"
 						f"**Date: **{self.date.value}\n"
 						f"**Time: **{self.from_time.value}-{self.to_time.value}\n"
 						f"**Requested By: **{interaction.user.mention}",
 					color=discord.Color.green()
-				)
+				), view=view
 			)
 
 		except ValueError as e:
@@ -102,7 +114,7 @@ async def request(ctx):
 # to view all requests, command is !view_requests:
 @bot.command()
 async def view_requests(ctx):
-	cursor.execute('SELECT id, user_id, location, date, time, status FROM requests WHERE status = "Pending"')
+	cursor.execute('SELECT id, user_id, location, date, from_time, to_time, status FROM requests WHERE status = "Pending"')
 	requests = cursor.fetchall()
 
 	if not requests:
@@ -110,28 +122,29 @@ async def view_requests(ctx):
 		return
 	
 	for request in requests:
-		request_id, user_id, location, date, time, status = request
+		request_id, user_id, location, date, from_time, to_time, status = request
 	
 	embed = discord.Embed(title=f"Room Request #{request_id}", color=discord.Color.blue())
 	embed.add_field(name="Location", value=location, inline=True)
 	embed.add_field(name="Date", value=date, inline=True)
-	embed.add_field(name="Time", value=time, inline=True)
+	embed.add_field(name="From", value=from_time, inline=True)
+	embed.add_field(name="To", value=to_time, inline=True)
 	embed.add_field(name="Requested By", value=f"<@{user_id}>", inline=False)
 	embed.add_field(name="Status", value=status, inline=False)
 
-	button = Button(label="Mark as Completed", style=discord.ButtonStyle.green)
+	button = Button(label="Mark as Booked", style=discord.ButtonStyle.green)
 
 	async def button_callback(interaction: discord.Interaction):
-		cursor.execute('SELECT location, date, time FROM requests WHERE id = ?', (request_id,))
+		cursor.execute('SELECT location, date, from_time, to_time FROM requests WHERE id = ?', (request_id,))
 		result = cursor.fetchone()
 
 		if result:
-			location, date, time = result
+			location, date, from_time, to_time = result
 			await ctx.channel.send(
 				f"✅ **Room request completed!**\n"
                 f"- **Location:** {location}\n"
                 f"- **Date:** {date}\n"
-                f"- **Time:** {time}\n"
+                f"- **Time:** {from_time}-{to_time}\n"
                 f"- **Completed by:** {interaction.user.mention}"
             )
 
